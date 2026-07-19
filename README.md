@@ -42,6 +42,21 @@
 
 ---
 
+## 如何安装
+
+前往 **[GitHub Releases](https://github.com/RyanChen1997/skillman/releases)** 下载最新版本，根据你的系统选择对应的安装包：
+
+| 系统 | 推荐安装包 | 说明 |
+|---|---|---|
+| macOS（Intel / Apple Silicon） | `skillman_*_universal.dmg` | Universal 安装包，同时支持 Intel 与 Apple Silicon |
+| Windows | `skillman_*_x64-setup.exe` | NSIS 安装程序 |
+| Linux（Debian / Ubuntu 等） | `skillman_*_amd64.deb` | 双击或使用 `dpkg -i` 安装 |
+| Linux（其他发行版） | `skillman_*_amd64.AppImage` | 无需安装，赋予执行权限后直接运行 |
+
+> 当前版本暂未进行代码签名/公证。macOS 用户首次打开可能需在「系统设置 > 隐私与安全性」中允许；Windows 用户可能看到 SmartScreen 提示，选择「仍要运行」即可。
+
+---
+
 ## 核心功能
 
 ### 🔍 自动检测 + 一键导入
