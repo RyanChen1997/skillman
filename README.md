@@ -53,7 +53,22 @@
 | Linux（Debian / Ubuntu 等） | `skillman_*_amd64.deb` | 双击或使用 `dpkg -i` 安装 |
 | Linux（其他发行版） | `skillman_*_amd64.AppImage` | 无需安装，赋予执行权限后直接运行 |
 
-> 当前版本暂未进行代码签名/公证。macOS 用户首次打开可能需在「系统设置 > 隐私与安全性」中允许；Windows 用户可能看到 SmartScreen 提示，选择「仍要运行」即可。
+> **当前版本暂未进行代码签名/公证**，首次运行时操作系统会给出安全提示，按下方对应步骤操作即可。
+>
+> **macOS 用户**
+> 1. 双击打开 `.dmg` 并拖动 `Skillman` 到「应用程序」。
+> 2. 首次启动时若提示「无法打开 Skillman，因为无法验证开发者」，点击「好」。
+> 3. 打开「系统设置 > 隐私与安全性」，在「安全性」区域找到「已阻止使用 Skillman」，点击「仍要打开」。
+> 4. 再次启动 Skillman，在弹出的确认对话框中点击「打开」。
+>
+> **Windows 用户**
+> 1. 运行下载的 `.exe` 安装程序。
+> 2. 若 Microsoft Defender SmartScreen 提示「Windows 已保护你的电脑」，点击「更多信息」。
+> 3. 然后点击「仍要运行」以继续安装。
+>
+> **Linux 用户**
+> - `.deb`：双击安装或使用终端运行 `sudo dpkg -i skillman_*_amd64.deb`。
+> - `.AppImage`：右键属性中勾选「允许作为程序执行」，或直接运行 `chmod +x skillman_*_amd64.AppImage && ./skillman_*_amd64.AppImage`。
 
 ---
 
