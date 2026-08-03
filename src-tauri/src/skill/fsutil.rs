@@ -6,7 +6,10 @@ use walkdir::WalkDir;
 
 pub fn copy_dir_recursive(src: &Path, dst: &Path) -> io::Result<()> {
     if !src.exists() {
-        return Err(io::Error::new(io::ErrorKind::NotFound, format!("src missing: {}", src.display())));
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("src missing: {}", src.display()),
+        ));
     }
     fs::create_dir_all(dst)?;
     for entry in fs::read_dir(src)? {
@@ -22,8 +25,11 @@ pub fn copy_dir_recursive(src: &Path, dst: &Path) -> io::Result<()> {
             std::os::unix::fs::symlink(&target, &to)?;
             #[cfg(windows)]
             {
-                if target.is_dir() { std::os::windows::fs::symlink_dir(&target, &to)?; }
-                else { std::os::windows::fs::symlink_file(&target, &to)?; }
+                if target.is_dir() {
+                    std::os::windows::fs::symlink_dir(&target, &to)?;
+                } else {
+                    std::os::windows::fs::symlink_file(&target, &to)?;
+                }
             }
         } else {
             fs::copy(&from, &to)?;
@@ -54,8 +60,11 @@ fn symlink(src: &Path, dst: &Path) -> io::Result<()> {
 }
 #[cfg(windows)]
 fn symlink(src: &Path, dst: &Path) -> io::Result<()> {
-    if src.is_dir() { std::os::windows::fs::symlink_dir(src, dst) }
-    else { std::os::windows::fs::symlink_file(src, dst) }
+    if src.is_dir() {
+        std::os::windows::fs::symlink_dir(src, dst)
+    } else {
+        std::os::windows::fs::symlink_file(src, dst)
+    }
 }
 
 pub fn remove_recursive(path: &Path) -> io::Result<()> {
@@ -71,38 +80,23 @@ pub fn remove_recursive(path: &Path) -> io::Result<()> {
     }
 }
 
-/// Remove all children of `path` but keep `path` itself.
-pub fn clear_dir_contents(path: &Path) -> io::Result<()> {
-    if !path.exists() {
-        return Ok(());
-    }
-    for entry in fs::read_dir(path)? {
-        let entry = entry?;
-        let p = entry.path();
-        if entry.file_type()?.is_dir() {
-            fs::remove_dir_all(&p)?;
-        } else {
-            fs::remove_file(&p)?;
-        }
-    }
-    Ok(())
-}
-
 pub fn is_symlink_to(path: &Path, target: &Path) -> bool {
     match fs::symlink_metadata(path) {
         Ok(m) if m.file_type().is_symlink() => {
-            fs::read_link(path).map(|t| {
-                // Resolve relative symlink targets before comparing; on Windows
-                // symlinks often point to relative paths, and strict == would fail.
-                let resolved = if t.is_absolute() {
-                    t.clone()
-                } else {
-                    path.parent().unwrap_or(Path::new(".")).join(&t)
-                };
-                let resolved = fs::canonicalize(&resolved).unwrap_or(resolved);
-                let target_canon = fs::canonicalize(target).unwrap_or(target.to_path_buf());
-                resolved == target_canon
-            }).unwrap_or(false)
+            fs::read_link(path)
+                .map(|t| {
+                    // Resolve relative symlink targets before comparing; on Windows
+                    // symlinks often point to relative paths, and strict == would fail.
+                    let resolved = if t.is_absolute() {
+                        t.clone()
+                    } else {
+                        path.parent().unwrap_or(Path::new(".")).join(&t)
+                    };
+                    let resolved = fs::canonicalize(&resolved).unwrap_or(resolved);
+                    let target_canon = fs::canonicalize(target).unwrap_or(target.to_path_buf());
+                    resolved == target_canon
+                })
+                .unwrap_or(false)
         }
         _ => false,
     }
@@ -143,7 +137,8 @@ mod tests {
     use super::*;
 
     fn tmp(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("skillman_fsutil_{}_{}", std::process::id(), name));
+        let d =
+            std::env::temp_dir().join(format!("skillman_fsutil_{}_{}", std::process::id(), name));
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(&d).unwrap();
         d
@@ -160,7 +155,10 @@ mod tests {
         let dst = root.join("dst");
         copy_dir_recursive(&src, &dst).unwrap();
         assert!(dst.join("SKILL.md").exists());
-        assert_eq!(fs::read_to_string(dst.join("sub").join("a.txt")).unwrap(), "abc");
+        assert_eq!(
+            fs::read_to_string(dst.join("sub").join("a.txt")).unwrap(),
+            "abc"
+        );
     }
 
     #[test]
@@ -179,27 +177,14 @@ mod tests {
     #[test]
     fn content_hash_is_stable_and_distinct() {
         let root = tmp("hash");
-        let a = root.join("a"); fs::create_dir(&a).unwrap(); fs::write(a.join("f"), "x").unwrap();
+        let a = root.join("a");
+        fs::create_dir(&a).unwrap();
+        fs::write(a.join("f"), "x").unwrap();
         let h1 = content_hash(&a).unwrap();
         let h2 = content_hash(&a).unwrap();
         assert_eq!(h1, h2);
         fs::write(a.join("f"), "y").unwrap();
         let h3 = content_hash(&a).unwrap();
         assert_ne!(h1, h3);
-    }
-
-    #[test]
-    fn clear_dir_contents_removes_children_but_keeps_dir() {
-        let root = tmp("clear_contents");
-        let target = root.join("dir");
-        fs::create_dir(&target).unwrap();
-        fs::write(target.join("a.txt"), "a").unwrap();
-        fs::create_dir(target.join("sub")).unwrap();
-        fs::write(target.join("sub").join("b.txt"), "b").unwrap();
-
-        clear_dir_contents(&target).unwrap();
-
-        assert!(target.exists(), "directory itself should be kept");
-        assert_eq!(fs::read_dir(&target).unwrap().count(), 0, "children should be removed");
     }
 }

@@ -106,7 +106,7 @@ function cancelReset() {
         <h2 class="text-sm font-semibold mb-3">数据管理</h2>
         <div class="border border-[var(--color-border)] rounded-lg overflow-hidden bg-[var(--color-surface)]">
           <div class="grid grid-cols-[200px_1fr_32px] gap-6 p-[18px] items-center">
-            <div><div class="text-[13.5px] font-medium">重置数据</div><div class="text-xs text-[var(--color-muted)] mt-0.5">将所有 skill 恢复到原目录并清空数据</div></div>
+            <div><div class="text-[13.5px] font-medium">重置数据</div><div class="text-xs text-[var(--color-muted)] mt-0.5">将所有 skill 恢复到原目录并清空数据(skill-backups 备份会保留,便于找回)</div></div>
             <div><Button variant="destructive" size="sm" @click="doReset">重置</Button></div>
           </div>
         </div>
@@ -127,7 +127,7 @@ function cancelReset() {
   <Dialog v-model:open="showResetConfirm">
     <div class="text-[16px] font-semibold mb-2">确认重置?</div>
     <p class="text-[13.5px] text-[var(--color-muted)] mb-6 leading-relaxed">
-      这将把所有 skill 从 SSOT 恢复到原来的 agent 目录，删除所有 symlinks，并清空数据库与备份。此操作不可撤销。
+      这将把所有 skill 从 SSOT 恢复到原来的 agent 目录，删除所有 symlinks，并清空数据库与项目。skill-backups 目录中的备份会保留，出问题时可以手动找回文件。此操作不可撤销。
     </p>
     <div class="flex justify-end gap-2">
       <Button variant="ghost" size="sm" @click="cancelReset">取消</Button>

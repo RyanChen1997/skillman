@@ -13,8 +13,11 @@ impl Database {
             std::fs::create_dir_all(p)?;
         }
         let conn = Connection::open(path).map_err(io_err)?;
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;").ok();
-        let db = Arc::new(Database { conn: Mutex::new(conn) });
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")
+            .ok();
+        let db = Arc::new(Database {
+            conn: Mutex::new(conn),
+        });
         db.migrate();
         Ok(db)
     }
@@ -36,10 +39,12 @@ impl Database {
                 .collect()
         };
         if cols.contains(&"custom_global_dir".to_string()) {
-            c.execute("ALTER TABLE agents DROP COLUMN custom_global_dir", []).ok();
+            c.execute("ALTER TABLE agents DROP COLUMN custom_global_dir", [])
+                .ok();
         }
         if cols.contains(&"custom_project_base".to_string()) {
-            c.execute("ALTER TABLE agents DROP COLUMN custom_project_base", []).ok();
+            c.execute("ALTER TABLE agents DROP COLUMN custom_project_base", [])
+                .ok();
         }
         if !cols.contains(&"source_only".to_string()) {
             c.execute(
@@ -52,7 +57,7 @@ impl Database {
 }
 
 fn io_err(e: rusqlite::Error) -> std::io::Error {
-    std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+    std::io::Error::other(e.to_string())
 }
 
 const SCHEMA: &str = r#"
@@ -112,18 +117,32 @@ mod tests {
         let db = Database::open(&tmp).unwrap();
         let c = db.conn();
         let names: Vec<String> = {
-            let mut stmt = c.prepare("SELECT name FROM sqlite_master WHERE type='table'").unwrap();
-            stmt.query_map([], |r| r.get::<_, String>(0)).unwrap()
-                .filter_map(|r| r.ok()).collect()
+            let mut stmt = c
+                .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+                .unwrap();
+            stmt.query_map([], |r| r.get::<_, String>(0))
+                .unwrap()
+                .filter_map(|r| r.ok())
+                .collect()
         };
-        for t in ["skills", "skill_origins", "skill_links", "agents", "projects", "settings"] {
+        for t in [
+            "skills",
+            "skill_origins",
+            "skill_links",
+            "agents",
+            "projects",
+            "settings",
+        ] {
             assert!(names.contains(&t.to_string()), "missing table {t}");
         }
         c.execute("INSERT INTO agents(id,name,global_subpath,project_subpath,installed) VALUES('codex','Codex','.codex/skills','.codex/skills',1)", []).unwrap();
         c.execute("INSERT INTO skills(id,name,directory,installed_at,updated_at) VALUES('local:foo','foo','foo',1,1)", []).unwrap();
         c.execute("INSERT INTO skill_links(skill_id,scope,project_id,agent_id,enabled) VALUES('local:foo','global','','codex',1)", []).unwrap();
-        c.execute("DELETE FROM skills WHERE id='local:foo'", []).unwrap();
-        let n: i64 = c.query_row("SELECT COUNT(*) FROM skill_links", [], |r| r.get(0)).unwrap();
+        c.execute("DELETE FROM skills WHERE id='local:foo'", [])
+            .unwrap();
+        let n: i64 = c
+            .query_row("SELECT COUNT(*) FROM skill_links", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(n, 0, "cascade delete failed");
         drop(c);
         drop(db);

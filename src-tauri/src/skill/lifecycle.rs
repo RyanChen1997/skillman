@@ -10,7 +10,10 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn now_ts() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }
 
 pub fn list_skills(db: &Arc<Database>) -> Vec<SkillView> {
@@ -22,17 +25,33 @@ pub fn list_skills(db: &Arc<Database>) -> Vec<SkillView> {
         let mut stmt = c.prepare(
             "SELECT id,name,directory,description,source,content_hash,installed_at,updated_at FROM skills ORDER BY installed_at DESC, name"
         ).unwrap();
-        stmt.query_map([], |r| Ok(crate::models::InstalledSkill {
-            id: r.get(0)?, name: r.get(1)?, directory: r.get(2)?, description: r.get(3)?,
-            source: r.get(4)?, content_hash: r.get(5)?, installed_at: r.get(6)?, updated_at: r.get(7)?,
-        })).unwrap().filter_map(|r| r.ok()).collect()
+        stmt.query_map([], |r| {
+            Ok(crate::models::InstalledSkill {
+                id: r.get(0)?,
+                name: r.get(1)?,
+                directory: r.get(2)?,
+                description: r.get(3)?,
+                source: r.get(4)?,
+                content_hash: r.get(5)?,
+                installed_at: r.get(6)?,
+                updated_at: r.get(7)?,
+            })
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     };
     let mut views = Vec::new();
     for s in skills {
         let links = load_links(db, &s.id);
         let origins = load_origins(db, &s.id);
         let any_enabled = links.iter().any(|l| l.enabled);
-        views.push(SkillView { skill: s, links, origins, any_enabled });
+        views.push(SkillView {
+            skill: s,
+            links,
+            origins,
+            any_enabled,
+        });
     }
     views
 }
@@ -43,32 +62,65 @@ pub fn get_skill(db: &Arc<Database>, id: &str) -> Option<SkillView> {
 
 fn load_links(db: &Arc<Database>, skill_id: &str) -> Vec<SkillLink> {
     let c = db.conn();
-    let mut stmt = c.prepare("SELECT skill_id,scope,project_id,agent_id,enabled FROM skill_links WHERE skill_id=?1").unwrap();
+    let mut stmt = c
+        .prepare(
+            "SELECT skill_id,scope,project_id,agent_id,enabled FROM skill_links WHERE skill_id=?1",
+        )
+        .unwrap();
     stmt.query_map(params![skill_id], |r| {
         let raw: Option<String> = r.get(2)?;
         Ok(SkillLink {
-            skill_id: r.get(0)?, scope: r.get(1)?, project_id: raw.filter(|p| !p.is_empty()), agent_id: r.get(3)?, enabled: r.get::<_, i64>(4)? != 0,
+            skill_id: r.get(0)?,
+            scope: r.get(1)?,
+            project_id: raw.filter(|p| !p.is_empty()),
+            agent_id: r.get(3)?,
+            enabled: r.get::<_, i64>(4)? != 0,
         })
-    }).unwrap().filter_map(|r| r.ok()).collect()
+    })
+    .unwrap()
+    .filter_map(|r| r.ok())
+    .collect()
 }
 
 fn load_origins(db: &Arc<Database>, skill_id: &str) -> Vec<SkillOrigin> {
     let c = db.conn();
-    let mut stmt = c.prepare("SELECT skill_id,origin_path,found_in,imported_at FROM skill_origins WHERE skill_id=?1").unwrap();
-    stmt.query_map(params![skill_id], |r| Ok(SkillOrigin {
-        skill_id: r.get(0)?, origin_path: r.get(1)?, found_in: r.get(2)?, imported_at: r.get(3)?,
-    })).unwrap().filter_map(|r| r.ok()).collect()
+    let mut stmt = c
+        .prepare(
+            "SELECT skill_id,origin_path,found_in,imported_at FROM skill_origins WHERE skill_id=?1",
+        )
+        .unwrap();
+    stmt.query_map(params![skill_id], |r| {
+        Ok(SkillOrigin {
+            skill_id: r.get(0)?,
+            origin_path: r.get(1)?,
+            found_in: r.get(2)?,
+            imported_at: r.get(3)?,
+        })
+    })
+    .unwrap()
+    .filter_map(|r| r.ok())
+    .collect()
 }
 
 /// Resolve the exact skill directory (not the whole agent dir) for a link.
 /// Must join the skill's `directory` — returning the bare agent dir here would
 /// make restore/uninstall `remove_recursive` the ENTIRE agent skills directory
 /// (data loss: unrelated skills placed there get wiped).
-fn dest_for_link(db: &Arc<Database>, link: &SkillLink, agents: &[crate::models::Agent], projects: &[crate::models::Project]) -> Option<std::path::PathBuf> {
+fn dest_for_link(
+    db: &Arc<Database>,
+    link: &SkillLink,
+    agents: &[crate::models::Agent],
+    projects: &[crate::models::Project],
+) -> Option<std::path::PathBuf> {
     let agent = agents.iter().find(|a| a.id == link.agent_id)?;
     let dir: String = {
         let c = db.conn();
-        c.query_row("SELECT directory FROM skills WHERE id=?1", params![link.skill_id], |r| r.get(0)).ok()?
+        c.query_row(
+            "SELECT directory FROM skills WHERE id=?1",
+            params![link.skill_id],
+            |r| r.get(0),
+        )
+        .ok()?
     };
     match link.scope.as_str() {
         "global" => Some(resolve_global_dest(agent).join(dir)),
@@ -86,7 +138,9 @@ pub fn restore_skill(db: &Arc<Database>, projects: &[crate::models::Project], id
     let ssot = paths::ssot_dir().join(skill_dir_of(db, id));
     // 1. remove all symlinks/copy for enabled links
     for link in load_links(db, id) {
-        if !link.enabled { continue; }
+        if !link.enabled {
+            continue;
+        }
         if let Some(dest) = dest_for_link(db, &link, &agents, projects) {
             let _ = remove_recursive(&dest);
         }
@@ -95,8 +149,12 @@ pub fn restore_skill(db: &Arc<Database>, projects: &[crate::models::Project], id
     for o in load_origins(db, id) {
         let origin = Path::new(&o.origin_path);
         if !origin.exists() || is_symlink_to(origin, &ssot) {
-            if is_symlink_to(origin, &ssot) { let _ = remove_recursive(origin); }
-            if let Some(parent) = origin.parent() { let _ = fs::create_dir_all(parent); }
+            if is_symlink_to(origin, &ssot) {
+                let _ = remove_recursive(origin);
+            }
+            if let Some(parent) = origin.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
             let _ = copy_dir_recursive(&ssot, origin);
         }
     }
@@ -104,7 +162,8 @@ pub fn restore_skill(db: &Arc<Database>, projects: &[crate::models::Project], id
     let _ = remove_recursive(&ssot);
     // 4. delete DB rows
     let c = db.conn();
-    c.execute("DELETE FROM skills WHERE id=?1", params![id]).ok();
+    c.execute("DELETE FROM skills WHERE id=?1", params![id])
+        .ok();
 }
 
 pub fn uninstall_skill(db: &Arc<Database>, projects: &[crate::models::Project], id: &str) {
@@ -113,7 +172,9 @@ pub fn uninstall_skill(db: &Arc<Database>, projects: &[crate::models::Project], 
     let ssot = paths::ssot_dir().join(&dir);
     // 1. remove all symlinks/copy
     for link in load_links(db, id) {
-        if !link.enabled { continue; }
+        if !link.enabled {
+            continue;
+        }
         if let Some(dest) = dest_for_link(db, &link, &agents, projects) {
             let _ = remove_recursive(&dest);
         }
@@ -128,7 +189,8 @@ pub fn uninstall_skill(db: &Arc<Database>, projects: &[crate::models::Project], 
     let _ = remove_recursive(&ssot);
     // 4. delete DB rows
     let c = db.conn();
-    c.execute("DELETE FROM skills WHERE id=?1", params![id]).ok();
+    c.execute("DELETE FROM skills WHERE id=?1", params![id])
+        .ok();
 }
 
 pub fn reset_all(db: &Arc<Database>, projects: &[crate::models::Project]) {
@@ -152,13 +214,19 @@ pub fn reset_all(db: &Arc<Database>, projects: &[crate::models::Project]) {
         c.execute("DELETE FROM projects", []).ok();
     }
 
-    // Clear backup directory contents.
-    let _ = crate::skill::fsutil::clear_dir_contents(&crate::paths::backups_dir());
+    // NOTE: skill-backups 目录刻意保留,不清空。它是操作安全网:导入接管/
+    // 自动删除重复/卸载时都会先备份原文。万一后续代码出 bug 弄丢了真实文件,
+    // 用户可以来这里手动找回。重置只恢复 skill 与清库,不动备份。
 }
 
 fn skill_dir_of(db: &Arc<Database>, id: &str) -> String {
     let c = db.conn();
-    c.query_row("SELECT directory FROM skills WHERE id=?1", params![id], |r| r.get::<_, String>(0)).unwrap_or_default()
+    c.query_row(
+        "SELECT directory FROM skills WHERE id=?1",
+        params![id],
+        |r| r.get::<_, String>(0),
+    )
+    .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -197,7 +265,8 @@ mod tests {
 
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, Ordering::SeqCst);
-        let root = std::env::temp_dir().join(format!("skillman_reset_all_{}_{}", std::process::id(), n));
+        let root =
+            std::env::temp_dir().join(format!("skillman_reset_all_{}_{}", std::process::id(), n));
         let _ = std::fs::remove_dir_all(&root);
         let home = root.join("home");
         let agent_dir = home.join(".x/skills");
@@ -210,7 +279,11 @@ mod tests {
         .unwrap();
 
         let db = {
-            let p = std::env::temp_dir().join(format!("skillman_reset_all_db_{}_{}.db", std::process::id(), n));
+            let p = std::env::temp_dir().join(format!(
+                "skillman_reset_all_db_{}_{}.db",
+                std::process::id(),
+                n
+            ));
             let _ = std::fs::remove_file(&p);
             Database::open(&p).unwrap()
         };
@@ -244,17 +317,31 @@ mod tests {
             // Verify origin is restored as real directory (not symlink)
             assert!(skill_src.exists(), "origin should exist after reset");
             let meta = std::fs::symlink_metadata(&skill_src).unwrap();
-            assert!(!meta.file_type().is_symlink(), "origin should not be a symlink after reset");
+            assert!(
+                !meta.file_type().is_symlink(),
+                "origin should not be a symlink after reset"
+            );
 
             // Verify SSOT is gone
-            assert!(!paths::ssot_dir().join("resetfoo").exists(), "SSOT should be deleted");
+            assert!(
+                !paths::ssot_dir().join("resetfoo").exists(),
+                "SSOT should be deleted"
+            );
 
             // Verify DB is empty
             let c = db.conn();
-            let skill_count: i64 = c.query_row("SELECT COUNT(*) FROM skills", [], |r| r.get(0)).unwrap();
-            let link_count: i64 = c.query_row("SELECT COUNT(*) FROM skill_links", [], |r| r.get(0)).unwrap();
-            let origin_count: i64 = c.query_row("SELECT COUNT(*) FROM skill_origins", [], |r| r.get(0)).unwrap();
-            let project_count: i64 = c.query_row("SELECT COUNT(*) FROM projects", [], |r| r.get(0)).unwrap();
+            let skill_count: i64 = c
+                .query_row("SELECT COUNT(*) FROM skills", [], |r| r.get(0))
+                .unwrap();
+            let link_count: i64 = c
+                .query_row("SELECT COUNT(*) FROM skill_links", [], |r| r.get(0))
+                .unwrap();
+            let origin_count: i64 = c
+                .query_row("SELECT COUNT(*) FROM skill_origins", [], |r| r.get(0))
+                .unwrap();
+            let project_count: i64 = c
+                .query_row("SELECT COUNT(*) FROM projects", [], |r| r.get(0))
+                .unwrap();
             assert_eq!(skill_count, 0, "skills should be empty");
             assert_eq!(link_count, 0, "skill_links should be empty");
             assert_eq!(origin_count, 0, "skill_origins should be empty");
@@ -275,7 +362,8 @@ mod tests {
 
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, Ordering::SeqCst);
-        let root = std::env::temp_dir().join(format!("skillman_reset_unrel_{}_{}", std::process::id(), n));
+        let root =
+            std::env::temp_dir().join(format!("skillman_reset_unrel_{}_{}", std::process::id(), n));
         let _ = std::fs::remove_dir_all(&root);
         let home = root.join("home");
         let agent_dir = home.join(".x/skills");
@@ -288,7 +376,11 @@ mod tests {
         .unwrap();
 
         let db = {
-            let p = std::env::temp_dir().join(format!("skillman_reset_unrel_db_{}_{}.db", std::process::id(), n));
+            let p = std::env::temp_dir().join(format!(
+                "skillman_reset_unrel_db_{}_{}.db",
+                std::process::id(),
+                n
+            ));
             let _ = std::fs::remove_file(&p);
             Database::open(&p).unwrap()
         };
@@ -313,7 +405,10 @@ mod tests {
             }];
             let _ = crate::skill::import::confirm_import(&db, &projects, imports);
             assert!(
-                crate::skill::fsutil::is_symlink_to(&skill_src, &paths::ssot_dir().join("resetfoo")),
+                crate::skill::fsutil::is_symlink_to(
+                    &skill_src,
+                    &paths::ssot_dir().join("resetfoo")
+                ),
                 "import should leave a symlink in the agent dir"
             );
 
@@ -330,16 +425,116 @@ mod tests {
             reset_all(&db, &projects);
 
             // 4. the unrelated skill must survive untouched
-            assert!(unrelated.exists(), "unrelated skill in agent dir must survive reset");
-            let meta = std::fs::symlink_metadata(&unrelated).unwrap();
-            assert!(!meta.file_type().is_symlink(), "unrelated skill must stay a real dir");
             assert!(
-                std::fs::read_to_string(unrelated.join("SKILL.md")).unwrap().contains("brand-new-skill"),
+                unrelated.exists(),
+                "unrelated skill in agent dir must survive reset"
+            );
+            let meta = std::fs::symlink_metadata(&unrelated).unwrap();
+            assert!(
+                !meta.file_type().is_symlink(),
+                "unrelated skill must stay a real dir"
+            );
+            assert!(
+                std::fs::read_to_string(unrelated.join("SKILL.md"))
+                    .unwrap()
+                    .contains("brand-new-skill"),
                 "unrelated skill content must be intact"
             );
             // the imported skill itself is restored as a real dir
             let meta2 = std::fs::symlink_metadata(&skill_src).unwrap();
-            assert!(!meta2.file_type().is_symlink(), "imported skill should be restored as real dir");
+            assert!(
+                !meta2.file_type().is_symlink(),
+                "imported skill should be restored as real dir"
+            );
+        });
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Regression: reset must NOT clear the skill-backups directory. Backups are
+    /// the safety net for recovering files after bugs; reset only restores
+    /// skills and clears the DB, leaving backups untouched for manual recovery.
+    #[test]
+    fn reset_all_keeps_backups_dir() {
+        use crate::paths;
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::SeqCst);
+        let root = std::env::temp_dir().join(format!(
+            "skillman_reset_backup_{}_{}",
+            std::process::id(),
+            n
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let home = root.join("home");
+        let agent_dir = home.join(".x/skills");
+        let skill_src = agent_dir.join("bkfoo");
+        std::fs::create_dir_all(&skill_src).unwrap();
+        std::fs::write(
+            skill_src.join("SKILL.md"),
+            "---\nname: bkfoo\ndescription: Desc.\n---\n# bkfoo\n\nDesc.\n",
+        )
+        .unwrap();
+
+        let db = {
+            let p = std::env::temp_dir().join(format!(
+                "skillman_reset_backup_db_{}_{}.db",
+                std::process::id(),
+                n
+            ));
+            let _ = std::fs::remove_file(&p);
+            Database::open(&p).unwrap()
+        };
+        {
+            let c = db.conn();
+            c.execute(
+                "INSERT INTO agents(id,name,global_subpath,project_subpath,installed,source_only) VALUES('testagent','T','.x/skills','.x/skills',1,0)",
+                [],
+            ).unwrap();
+        }
+
+        let projects: Vec<crate::models::Project> = vec![];
+
+        crate::paths::with_test_home(&home, || {
+            // import -> writes a preimport backup into skill-backups
+            let imports = vec![crate::skill::import::ImportReq {
+                dir: "bkfoo".into(),
+                origins: vec![crate::models::UnmanagedOrigin {
+                    path: skill_src.to_string_lossy().to_string(),
+                    found_in: "agent:testagent".into(),
+                }],
+            }];
+            let _ = crate::skill::import::confirm_import(&db, &projects, imports);
+
+            let backups_dir = paths::backups_dir();
+            let before: Vec<_> = std::fs::read_dir(&backups_dir)
+                .unwrap()
+                .flatten()
+                .map(|e| e.file_name())
+                .collect();
+            assert!(
+                !before.is_empty(),
+                "import should have created a preimport backup"
+            );
+
+            // reset
+            reset_all(&db, &projects);
+
+            // backups must survive reset untouched
+            let after: Vec<_> = std::fs::read_dir(&backups_dir)
+                .unwrap()
+                .flatten()
+                .map(|e| e.file_name())
+                .collect();
+            assert_eq!(
+                before.len(),
+                after.len(),
+                "reset must not clear the backups dir: before={:?} after={:?}",
+                before,
+                after
+            );
+            assert!(backups_dir.exists(), "backups dir should still exist");
         });
 
         let _ = std::fs::remove_dir_all(&root);
