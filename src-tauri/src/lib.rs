@@ -46,6 +46,16 @@ fn confirm_import(state: tauri::State<'_, AppState>, imports: Vec<ImportReq>) ->
     crate::skill::import::confirm_import(&state.db, &projects, imports)
 }
 
+/// Find same-name copies of already-managed skills and take them over
+/// automatically: agent dirs -> symlink + enable link; standard dirs -> delete.
+/// Returns the number of duplicate origins handled.
+#[tauri::command]
+fn reconcile_duplicates(state: tauri::State<'_, AppState>) -> usize {
+    let projects = crate::services::list_projects(&state.db);
+    let dups = crate::skill::scan::find_managed_duplicates(&state.db, &projects);
+    crate::skill::import::reconcile_duplicates(&state.db, &projects, dups)
+}
+
 #[tauri::command]
 fn list_skills(state: tauri::State<'_, AppState>) -> Vec<SkillView> {
     crate::skill::lifecycle::list_skills(&state.db)
@@ -153,7 +163,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(AppState { db })
         .invoke_handler(tauri::generate_handler![
-            detect_agents, list_agents, scan_unmanaged, scan_project, confirm_import,
+            detect_agents, list_agents, scan_unmanaged, scan_project, confirm_import, reconcile_duplicates,
             list_skills, get_skill, toggle_link, batch_set_links, batch_add_to_project, sync_all,
             restore_skill, uninstall_skill, list_projects, add_project, remove_project,
             get_setting, set_setting, read_skill_md_source, get_paths, reset_all,

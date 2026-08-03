@@ -28,15 +28,23 @@ pub fn read_skill_md(dir: &Path) -> io::Result<SkillMd> {
     let front_yaml = front_yaml.ok_or_else(|| {
         io::Error::new(io::ErrorKind::InvalidData, "SKILL.md has no frontmatter")
     })?;
-    let front: Frontmatter = serde_yaml::from_str(front_yaml).map_err(|e| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("SKILL.md frontmatter is malformed YAML: {}", e),
-        )
-    })?;
+    // Strict parse first; fall back to a lenient line-based parse for real-world
+    // frontmatter that strict YAML rejects (e.g. an unquoted `: ` inside a plain
+    // scalar description like "Do NOT use for: 单篇文章...").
+    match serde_yaml::from_str::<Frontmatter>(front_yaml) {
+        Ok(front) => build_skill_md(front.name, front.description),
+        Err(strict_err) => match parse_frontmatter_lenient(front_yaml) {
+            Ok(md) => Ok(md),
+            Err(_) => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("SKILL.md frontmatter is malformed YAML: {}", strict_err),
+            )),
+        },
+    }
+}
 
-    let name = front
-        .name
+fn build_skill_md(name: Option<String>, description: Option<String>) -> io::Result<SkillMd> {
+    let name = name
         .filter(|n| !n.trim().is_empty())
         .ok_or_else(|| {
             io::Error::new(
@@ -47,8 +55,7 @@ pub fn read_skill_md(dir: &Path) -> io::Result<SkillMd> {
         .trim()
         .to_string();
 
-    let description = front
-        .description
+    let description = description
         .filter(|d| !d.trim().is_empty())
         .ok_or_else(|| {
             io::Error::new(
@@ -60,6 +67,62 @@ pub fn read_skill_md(dir: &Path) -> io::Result<SkillMd> {
         .to_string();
 
     Ok(SkillMd { name, description })
+}
+
+/// Lenient fallback: extract the first `name:` and `description:` top-level keys
+/// line-by-line. Handles folded blocks (`description: >`) by joining indented
+/// continuation lines. Strict YAML remains the primary path; this only rescues
+/// frontmatter that strict YAML cannot parse.
+fn parse_frontmatter_lenient(front_yaml: &str) -> io::Result<SkillMd> {
+    let lines: Vec<&str> = front_yaml.lines().collect();
+    let mut name: Option<String> = None;
+    let mut description: Option<String> = None;
+
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        if line.starts_with('#') {
+            i += 1;
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("name:") {
+            if name.is_none() {
+                let v = rest.trim();
+                if !v.is_empty() {
+                    name = Some(v.to_string());
+                }
+            }
+            i += 1;
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("description:") {
+            if description.is_none() {
+                let rest = rest.trim();
+                if rest.is_empty() || rest.starts_with('>') || rest.starts_with('|') {
+                    // folded/literal block: join indented continuation lines
+                    let mut parts: Vec<String> = Vec::new();
+                    i += 1;
+                    while i < lines.len() && (lines[i].starts_with(' ') || lines[i].starts_with('\t')) {
+                        let t = lines[i].trim();
+                        if !t.is_empty() {
+                            parts.push(t.to_string());
+                        }
+                        i += 1;
+                    }
+                    if !parts.is_empty() {
+                        description = Some(parts.join(" "));
+                    }
+                    continue;
+                }
+                description = Some(rest.to_string());
+            }
+            i += 1;
+            continue;
+        }
+        i += 1;
+    }
+
+    build_skill_md(name, description)
 }
 
 /// Split raw markdown into optional YAML frontmatter content and the body.
@@ -189,6 +252,62 @@ mod tests {
         assert_eq!(md.name, "Agent Reach");
         assert_eq!(md.description, "Multi-platform internet research hub.");
 
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// Regression: real-world frontmatter whose description is a single plain
+    /// scalar containing an unquoted `: ` (e.g. "Do NOT use for: 单篇文章...")
+    /// fails strict YAML parsing. The lenient fallback must still extract
+    /// name/description so such skills are not silently skipped by the scan.
+    #[test]
+    fn lenient_parse_rescues_unquoted_colon_in_description() {
+        let (tmp, dir) = tmp_skill_dir("skillman_md_colon");
+        std::fs::write(
+            dir.join("SKILL.md"),
+            "---\nname: ai-hotspots\ndescription: 跨平台 AI 资讯速报工作流。Do NOT use for: 单篇文章深度技术分析 / AI 概念知识问答。\n---\n# ai-hotspots\n\nBody.\n",
+        )
+        .unwrap();
+
+        let md = read_skill_md(&dir).unwrap();
+        assert_eq!(md.name, "ai-hotspots");
+        assert!(md.description.contains("Do NOT use for: 单篇文章"));
+        assert!(serde_yaml::from_str::<Frontmatter>(
+            &format!(
+                "name: {}\ndescription: {}",
+                md.name, md.description
+            )
+        )
+        .is_err(),
+        "sanity: this description is indeed not strict-parseable");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn lenient_parse_handles_folded_description_block() {
+        let (tmp, dir) = tmp_skill_dir("skillman_md_folded");
+        std::fs::write(
+            dir.join("SKILL.md"),
+            "---\nname: Folded Skill\ndescription: >\n  First line of the description\n  Second line, joined with a space.\n  Also has: colon inside.\n---\n# Folded\n\nBody.\n",
+        )
+        .unwrap();
+
+        let md = read_skill_md(&dir).unwrap();
+        assert_eq!(md.name, "Folded Skill");
+        assert_eq!(
+            md.description,
+            "First line of the description Second line, joined with a space. Also has: colon inside."
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn lenient_parse_still_rejects_missing_fields() {
+        // No description at all -> must stay an error even under the fallback.
+        let (tmp, dir) = tmp_skill_dir("skillman_md_lenient_missing");
+        std::fs::write(dir.join("SKILL.md"), "---\nname: Only Name\n---\n# x\n\nBody.\n").unwrap();
+        assert!(read_skill_md(&dir).is_err());
         let _ = std::fs::remove_dir_all(&tmp);
     }
 }
