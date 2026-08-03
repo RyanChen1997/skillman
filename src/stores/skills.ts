@@ -1,7 +1,7 @@
 import { defineStore } from "pinia";
 import { ref, computed } from "vue";
 import type { SkillView, UnmanagedSkill, ImportReq, SkillLink } from "./types";
-import { listSkills, getSkill, scanUnmanaged, confirmImport, toggleLink, batchSetLinks, restoreSkill, uninstallSkill } from "../lib/tauri";
+import { listSkills, getSkill, scanUnmanaged, confirmImport, reconcileDuplicates, toggleLink, batchSetLinks, restoreSkill, uninstallSkill } from "../lib/tauri";
 
 export const useSkillsStore = defineStore("skills", () => {
   const skills = ref<SkillView[]>([]);
@@ -11,15 +11,37 @@ export const useSkillsStore = defineStore("skills", () => {
   const selectedIds = ref<Set<string>>(new Set());
   const loaded = ref(false);
   const showPreview = ref(false);
+  // 上次扫描/启动时自动接管的同名重复 Skill 数量(agent 目录→symlink+开链接;standard→删除)
+  const reconciledCount = ref(0);
 
   const totalCount = computed(() => skills.value.length);
   const enabledCount = computed(() => skills.value.filter(s => s.anyEnabled).length);
   const disabledCount = computed(() => totalCount.value - enabledCount.value);
 
-  async function load() { skills.value = await listSkills(); loaded.value = true; }
-  async function fetchUnmanaged() { scanning.value = true; unmanaged.value = await scanUnmanaged(); scanning.value = false; }
+  async function load() {
+    // 已导入 skill 的同名副本自动接管(symlink+开链接 / standard 删除)
+    await reconcile();
+    skills.value = await listSkills();
+    loaded.value = true;
+  }
+  async function reconcile() {
+    try {
+      reconciledCount.value = await reconcileDuplicates();
+    } catch {
+      reconciledCount.value = 0;
+    }
+  }
+  async function fetchUnmanaged() {
+    scanning.value = true;
+    unmanaged.value = await scanUnmanaged();
+    scanning.value = false;
+    // 扫描后立即接管已导入 skill 的同名副本
+    await reconcile();
+    if (reconciledCount.value > 0) skills.value = await listSkills();
+  }
   async function doImport(imports: ImportReq[]) { importing.value = true; skills.value = await confirmImport(imports); unmanaged.value = []; showPreview.value = false; importing.value = false; }
   function cancelScan() { unmanaged.value = []; showPreview.value = false; }
+  function dismissReconciled() { reconciledCount.value = 0; }
   async function refresh() { await load(); }
   function get(id: string) { return skills.value.find(s => s.id === id); }
 
@@ -64,9 +86,10 @@ export const useSkillsStore = defineStore("skills", () => {
   async function doRestore(id: string) { await restoreSkill(id); skills.value = skills.value.filter(s => s.id !== id); }
 
   return {
-    skills, unmanaged, scanning, importing, selectedIds, loaded, showPreview,
+    skills, unmanaged, scanning, importing, selectedIds, loaded, showPreview, reconciledCount,
     totalCount, enabledCount, disabledCount,
     load, fetchUnmanaged, doImport, refresh, get, isLinkOn, setLink, toggleAggregate,
     toggleSelect, clearSelection, selectAll, batchEnable, removeSkill, doRestore, cancelScan,
+    dismissReconciled,
   };
 });

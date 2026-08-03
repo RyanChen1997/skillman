@@ -20,6 +20,7 @@ pub static BUILTIN_AGENTS: &[AgentSpec] = &[
     AgentSpec { id: "cursor", name: "Cursor", global_subpath: ".cursor/skills", project_subpath: ".cursor/skills", source_only: false },
     AgentSpec { id: "grok", name: "Grok", global_subpath: ".grok/skills", project_subpath: ".grok/skills", source_only: false },
     AgentSpec { id: "antigravity", name: "Antigravity", global_subpath: ".gemini/config/skills", project_subpath: ".gemini/config/skills", source_only: false },
+    AgentSpec { id: "pi", name: "Pi", global_subpath: ".pi/agent/skills", project_subpath: ".pi/skills", source_only: false },
     AgentSpec { id: "standard", name: "Standard", global_subpath: ".agents/skills", project_subpath: ".agents/skills", source_only: true },
 ];
 
@@ -71,8 +72,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn builtin_has_seven() {
-        assert_eq!(BUILTIN_AGENTS.len(), 7);
+    fn builtin_has_eight() {
+        assert_eq!(BUILTIN_AGENTS.len(), 8);
     }
 
     #[test]

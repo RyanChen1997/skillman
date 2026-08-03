@@ -84,6 +84,9 @@ make_skill "$SANDBOX/.grok/skills/test-skill-e" "test-skill-e" \
 make_skill "$SANDBOX/.gemini/config/skills/test-skill-f" "test-skill-f" \
   "第六个测试 skill,只在 Antigravity 下。"
 
+make_skill "$SANDBOX/.pi/agent/skills/test-skill-h" "test-skill-h" \
+  "第八个测试 skill,只在 Pi 全局目录(~/.pi/agent/skills)下。"
+
 make_skill "$SANDBOX/.agents/skills/standard-skill-g" "standard-skill-g" \
   "只在 standard(.agents/skills) 目录下的 source-only skill。导入后原文件应被删除(并备份),不创建 symlink,默认不启用任何 agent 链接。"
 
@@ -112,6 +115,9 @@ make_skill "$PROJECT_DIR/.grok/skills/project-skill-e" "project-skill-e" \
 
 make_skill "$PROJECT_DIR/.gemini/config/skills/project-skill-f" "project-skill-f" \
   "项目级测试 skill,位于 Antigravity 的项目子目录下。"
+
+make_skill "$PROJECT_DIR/.pi/skills/project-skill-h" "project-skill-h" \
+  "项目级测试 skill,位于 Pi 的项目子目录(.pi/skills)下。"
 
 make_skill "$PROJECT_DIR/.agents/skills/project-skill-g" "project-skill-g" \
   "项目级 source-only 测试 skill,位于 standard 的项目子目录下。导入后应删除原文件,不产生默认链接。"

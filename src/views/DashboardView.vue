@@ -59,7 +59,7 @@ function labelFor(f: string) {
     <Button @click="runScan" :disabled="skills.scanning">
       {{ skills.scanning ? "扫描中…" : "扫描本地 Skills" }}
     </Button>
-    <p class="text-xs text-[var(--color-meta)] mt-4">检测 Claude Code · Codex · OpenCode · Cursor · Grok · Antigravity</p>
+    <p class="text-xs text-[var(--color-meta)] mt-4">检测 Claude Code · Codex · OpenCode · Cursor · Grok · Antigravity · Pi</p>
   </div>
 
   <!-- Scan preview (step 1) -->
@@ -67,6 +67,9 @@ function labelFor(f: string) {
     <h1 class="text-[26px] font-semibold mb-1">扫描结果</h1>
     <p class="text-[13.5px] text-[var(--color-muted)] mb-1">发现 <span class="font-mono">{{ skills.unmanaged.length }}</span> 个未托管的 Skills</p>
     <p v-if="sourceSummary" class="text-[12.5px] text-[var(--color-meta)] mb-6">来自:{{ sourceSummary }}</p>
+    <div v-if="skills.reconciledCount > 0" class="flex items-center gap-2 text-[12.5px] px-3 py-2 mb-4 rounded-md bg-[var(--color-surface-2)] border border-[var(--color-border)] text-[var(--color-muted)]">
+      <span>已自动接管 <span class="font-mono font-semibold text-[var(--color-accent)]">{{ skills.reconciledCount }}</span> 个同名重复 Skill(agent 目录已替换为 symlink 并开启链接,standard 目录已删除)</span>
+    </div>
 
     <div class="border border-[var(--color-border)] rounded-lg overflow-hidden mb-4">
       <div v-for="s in skills.unmanaged" :key="s.directory" class="flex items-start gap-3 p-3.5 border-b border-[var(--color-border-soft)] last:border-b-0 hover:bg-[var(--color-surface-2)]">
@@ -99,6 +102,10 @@ function labelFor(f: string) {
     <header class="px-10 pt-8 pb-6 border-b border-[var(--color-border)]">
       <h1 class="text-[26px] font-semibold mb-1">你好!</h1>
       <p class="text-[13.5px] text-[var(--color-muted)]">Library 中 <span class="font-mono">{{ skills.totalCount }}</span> 个 Skills · 全局已启用 <span class="font-mono">{{ skills.enabledCount }}</span> · 已检测 agent <span class="font-mono">{{ agents.installedAgents.length }}</span></p>
+      <div v-if="skills.reconciledCount > 0" class="mt-3 flex items-center gap-3 text-[12.5px] px-3 py-2 rounded-md bg-[var(--color-surface-2)] border border-[var(--color-border)] text-[var(--color-muted)]">
+        <span class="flex-1">已自动接管 <span class="font-mono font-semibold text-[var(--color-accent)]">{{ skills.reconciledCount }}</span> 个同名重复 Skill(agent 目录已替换为 symlink 并开启链接,standard 目录已删除)</span>
+        <button class="text-[var(--color-meta)] hover:text-[var(--color-muted)]" @click="skills.dismissReconciled()">知道了</button>
+      </div>
     </header>
     <div class="p-10">
       <div class="grid grid-cols-3 gap-4 mb-8">

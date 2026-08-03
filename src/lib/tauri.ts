@@ -6,6 +6,7 @@ export const listAgents = () => invoke<Agent[]>("list_agents");
 export const scanUnmanaged = () => invoke<UnmanagedSkill[]>("scan_unmanaged");
 export const scanProject = (projectId: string) => invoke<UnmanagedSkill[]>("scan_project", { projectId });
 export const confirmImport = (imports: ImportReq[]) => invoke<SkillView[]>("confirm_import", { imports });
+export const reconcileDuplicates = () => invoke<number>("reconcile_duplicates");
 export const listSkills = () => invoke<SkillView[]>("list_skills");
 export const getSkill = (id: string) => invoke<SkillView | null>("get_skill", { id });
 export const toggleLink = (p: { skillId: string; scope: string; projectId: string | null; agentId: string; on: boolean }) =>
