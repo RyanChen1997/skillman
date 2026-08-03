@@ -25,6 +25,13 @@ fn list_agents(state: tauri::State<'_, AppState>) -> Vec<Agent> {
     crate::agent::list_agents(&state.db)
 }
 
+/// Create an agent's global skills dir (if missing) and mark it installed.
+/// Returns the updated agent, or None if the agent is unknown.
+#[tauri::command]
+fn ensure_agent_dir(state: tauri::State<'_, AppState>, agent_id: String) -> Option<Agent> {
+    crate::agent::ensure_agent_dir(&state.db, &agent_id)
+}
+
 #[tauri::command]
 fn scan_unmanaged(state: tauri::State<'_, AppState>) -> Vec<UnmanagedSkill> {
     let projects = crate::services::list_projects(&state.db);
@@ -163,7 +170,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(AppState { db })
         .invoke_handler(tauri::generate_handler![
-            detect_agents, list_agents, scan_unmanaged, scan_project, confirm_import, reconcile_duplicates,
+            detect_agents, list_agents, ensure_agent_dir, scan_unmanaged, scan_project, confirm_import, reconcile_duplicates,
             list_skills, get_skill, toggle_link, batch_set_links, batch_add_to_project, sync_all,
             restore_skill, uninstall_skill, list_projects, add_project, remove_project,
             get_setting, set_setting, read_skill_md_source, get_paths, reset_all,

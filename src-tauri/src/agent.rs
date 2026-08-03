@@ -67,6 +67,32 @@ pub fn resolve_project_dest(agent: &Agent, project_root: &Path) -> PathBuf {
     project_root.join(&agent.project_subpath)
 }
 
+/// Create the agent's global skills directory (if missing) and mark it
+/// installed in the DB. Returns the updated agent. Used by the settings page
+/// "创建目录" button so an uninstalled agent can be enabled without a rescan.
+pub fn ensure_agent_dir(db: &Arc<Database>, agent_id: &str) -> Option<Agent> {
+    let agent: Option<Agent> = list_agents(db).into_iter().find(|a| a.id == agent_id);
+    let agent = agent?;
+    // source-only agents (standard) never take part in symlink control; the UI
+    // hides them, but guard here so a stray call can't mark one installed.
+    if agent.source_only {
+        return None;
+    }
+    let dest = resolve_global_dest(&agent);
+    if std::fs::create_dir_all(&dest).is_err() {
+        return None;
+    }
+    {
+        let c = db.conn();
+        c.execute(
+            "UPDATE agents SET installed=1 WHERE id=?1",
+            params![agent_id],
+        )
+        .ok();
+    }
+    list_agents(db).into_iter().find(|a| a.id == agent_id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -81,5 +107,44 @@ mod tests {
         let a = Agent { id: "codex".into(), name: "Codex".into(), global_subpath: ".codex/skills".into(), project_subpath: ".codex/skills".into(), installed: true, source_only: false };
         assert_eq!(resolve_global_dest(&a), paths::home().join(".codex/skills"));
         assert_eq!(resolve_project_dest(&a, Path::new("/proj")), PathBuf::from("/proj/.codex/skills"));
+    }
+
+    #[test]
+    fn ensure_agent_dir_creates_folder_and_marks_installed() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::SeqCst);
+        let p = std::env::temp_dir().join(format!("skillman_ensure_db_{}_{}.db", std::process::id(), n));
+        let _ = std::fs::remove_file(&p);
+        let db = crate::db::Database::open(&p).unwrap();
+        {
+            let c = db.conn();
+            c.execute(
+                "INSERT INTO agents(id,name,global_subpath,project_subpath,installed,source_only) VALUES('pi','Pi','.pi/agent/skills','.pi/skills',0,0)",
+                [],
+            ).unwrap();
+        }
+        let root = std::env::temp_dir().join(format!("skillman_ensure_home_{}_{}", std::process::id(), n));
+        let _ = std::fs::remove_dir_all(&root);
+        let home = root.join("home");
+        let dest = home.join(".pi/agent/skills");
+
+        crate::paths::with_test_home(&home, || {
+            assert!(!dest.exists(), "dir should not exist before ensure");
+            let agent = ensure_agent_dir(&db, "pi").expect("known agent should be returned");
+            assert!(dest.is_dir(), "global skills dir should be created");
+            assert!(agent.installed, "returned agent should be installed");
+            let installed: i64 = {
+                let c = db.conn();
+                c.query_row("SELECT installed FROM agents WHERE id='pi'", [], |r| r.get(0)).unwrap()
+            };
+            assert_eq!(installed, 1, "DB should mark the agent installed");
+            // unknown agent -> None, and nothing is created
+            assert!(ensure_agent_dir(&db, "nope").is_none());
+        });
+
+        let _ = std::fs::remove_dir_all(&root);
+        drop(db);
+        let _ = std::fs::remove_file(&p);
     }
 }

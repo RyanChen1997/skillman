@@ -60,14 +60,22 @@ fn load_origins(db: &Arc<Database>, skill_id: &str) -> Vec<SkillOrigin> {
     })).unwrap().filter_map(|r| r.ok()).collect()
 }
 
-fn dest_for_link(link: &SkillLink, agents: &[crate::models::Agent], projects: &[crate::models::Project]) -> Option<std::path::PathBuf> {
+/// Resolve the exact skill directory (not the whole agent dir) for a link.
+/// Must join the skill's `directory` — returning the bare agent dir here would
+/// make restore/uninstall `remove_recursive` the ENTIRE agent skills directory
+/// (data loss: unrelated skills placed there get wiped).
+fn dest_for_link(db: &Arc<Database>, link: &SkillLink, agents: &[crate::models::Agent], projects: &[crate::models::Project]) -> Option<std::path::PathBuf> {
     let agent = agents.iter().find(|a| a.id == link.agent_id)?;
+    let dir: String = {
+        let c = db.conn();
+        c.query_row("SELECT directory FROM skills WHERE id=?1", params![link.skill_id], |r| r.get(0)).ok()?
+    };
     match link.scope.as_str() {
-        "global" => Some(resolve_global_dest(agent)),
+        "global" => Some(resolve_global_dest(agent).join(dir)),
         "project" => {
             let pid = link.project_id.as_ref().filter(|p| !p.is_empty())?;
             let proj = projects.iter().find(|p| p.id == *pid)?;
-            Some(resolve_project_dest(agent, Path::new(&proj.path)))
+            Some(resolve_project_dest(agent, Path::new(&proj.path)).join(dir))
         }
         _ => None,
     }
@@ -79,7 +87,7 @@ pub fn restore_skill(db: &Arc<Database>, projects: &[crate::models::Project], id
     // 1. remove all symlinks/copy for enabled links
     for link in load_links(db, id) {
         if !link.enabled { continue; }
-        if let Some(dest) = dest_for_link(&link, &agents, projects) {
+        if let Some(dest) = dest_for_link(db, &link, &agents, projects) {
             let _ = remove_recursive(&dest);
         }
     }
@@ -106,7 +114,7 @@ pub fn uninstall_skill(db: &Arc<Database>, projects: &[crate::models::Project], 
     // 1. remove all symlinks/copy
     for link in load_links(db, id) {
         if !link.enabled { continue; }
-        if let Some(dest) = dest_for_link(&link, &agents, projects) {
+        if let Some(dest) = dest_for_link(db, &link, &agents, projects) {
             let _ = remove_recursive(&dest);
         }
     }
@@ -251,6 +259,87 @@ mod tests {
             assert_eq!(link_count, 0, "skill_links should be empty");
             assert_eq!(origin_count, 0, "skill_origins should be empty");
             assert_eq!(project_count, 0, "projects should be empty");
+        });
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Regression: reset previously removed the ENTIRE agent skills directory
+    /// (`dest_for_link` missed `.join(dir)`), wiping unrelated skills the user
+    /// had placed in that agent dir. After reset, only the skill's own dir may
+    /// be touched; unrelated files must survive untouched.
+    #[test]
+    fn reset_all_keeps_unrelated_files_in_agent_dir() {
+        use crate::paths;
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::SeqCst);
+        let root = std::env::temp_dir().join(format!("skillman_reset_unrel_{}_{}", std::process::id(), n));
+        let _ = std::fs::remove_dir_all(&root);
+        let home = root.join("home");
+        let agent_dir = home.join(".x/skills");
+        let skill_src = agent_dir.join("resetfoo");
+        std::fs::create_dir_all(&skill_src).unwrap();
+        std::fs::write(
+            skill_src.join("SKILL.md"),
+            "---\nname: resetfoo\ndescription: Desc.\n---\n# resetfoo\n\nDesc.\n",
+        )
+        .unwrap();
+
+        let db = {
+            let p = std::env::temp_dir().join(format!("skillman_reset_unrel_db_{}_{}.db", std::process::id(), n));
+            let _ = std::fs::remove_file(&p);
+            Database::open(&p).unwrap()
+        };
+        {
+            let c = db.conn();
+            c.execute(
+                "INSERT INTO agents(id,name,global_subpath,project_subpath,installed,source_only) VALUES('testagent','T','.x/skills','.x/skills',1,0)",
+                [],
+            ).unwrap();
+        }
+
+        let projects: Vec<crate::models::Project> = vec![];
+
+        crate::paths::with_test_home(&home, || {
+            // 1. import resetfoo -> agent dir entry becomes a symlink to SSOT
+            let imports = vec![crate::skill::import::ImportReq {
+                dir: "resetfoo".into(),
+                origins: vec![crate::models::UnmanagedOrigin {
+                    path: skill_src.to_string_lossy().to_string(),
+                    found_in: "agent:testagent".into(),
+                }],
+            }];
+            let _ = crate::skill::import::confirm_import(&db, &projects, imports);
+            assert!(
+                crate::skill::fsutil::is_symlink_to(&skill_src, &paths::ssot_dir().join("resetfoo")),
+                "import should leave a symlink in the agent dir"
+            );
+
+            // 2. user then drops an UNRELATED skill (never imported) into the same agent dir
+            let unrelated = agent_dir.join("brand-new-skill");
+            std::fs::create_dir_all(&unrelated).unwrap();
+            std::fs::write(
+                unrelated.join("SKILL.md"),
+                "---\nname: brand-new-skill\ndescription: Never imported.\n---\n# brand-new-skill\n\nFresh.\n",
+            )
+            .unwrap();
+
+            // 3. reset
+            reset_all(&db, &projects);
+
+            // 4. the unrelated skill must survive untouched
+            assert!(unrelated.exists(), "unrelated skill in agent dir must survive reset");
+            let meta = std::fs::symlink_metadata(&unrelated).unwrap();
+            assert!(!meta.file_type().is_symlink(), "unrelated skill must stay a real dir");
+            assert!(
+                std::fs::read_to_string(unrelated.join("SKILL.md")).unwrap().contains("brand-new-skill"),
+                "unrelated skill content must be intact"
+            );
+            // the imported skill itself is restored as a real dir
+            let meta2 = std::fs::symlink_metadata(&skill_src).unwrap();
+            assert!(!meta2.file_type().is_symlink(), "imported skill should be restored as real dir");
         });
 
         let _ = std::fs::remove_dir_all(&root);

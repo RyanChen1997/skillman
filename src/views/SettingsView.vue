@@ -96,9 +96,10 @@ function cancelReset() {
             <div><div class="text-[13.5px] font-medium">显示未安装的 agent</div><div class="text-xs text-[var(--color-muted)] mt-0.5">关闭则隐藏未安装 agent</div></div>
             <div><Switch :model-value="settings.showUninstalled" @update:model-value="settings.setShowUninstalled" /></div>
           </div>
-          <div v-for="a in agents.agents.filter(x => !x.sourceOnly)" :key="a.id" class="grid grid-cols-[200px_1fr_32px] gap-6 p-[18px] border-b border-[var(--color-border-soft)] items-center last:border-b-0">
+          <div v-for="a in agents.agents.filter(x => !x.sourceOnly)" :key="a.id" class="grid grid-cols-[200px_1fr_auto] gap-6 p-[18px] border-b border-[var(--color-border-soft)] items-center last:border-b-0">
             <div class="text-[13.5px] font-medium">{{ a.name }}</div>
             <div class="flex items-center gap-2 text-xs text-[var(--color-muted)]"><span class="font-mono">{{ agentGlobalPath(a.globalSubpath) }}</span><span :class="a.installed ? 'text-[var(--color-success)]' : 'text-[var(--color-warn)]'">{{ a.installed ? "已安装" : "未安装" }}</span></div>
+            <Button v-if="!a.installed" variant="secondary" size="sm" @click="agents.ensureInstalled(a.id)">创建目录</Button>
           </div>
         </div>
 

@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Agent, Project, SkillView, UnmanagedSkill, ImportReq } from "../stores/types";
 
 export const detectAgents = () => invoke<Agent[]>("detect_agents");
-export const listAgents = () => invoke<Agent[]>("list_agents");
+export const ensureAgentDir = (agentId: string) => invoke<Agent | null>("ensure_agent_dir", { agentId });
 export const scanUnmanaged = () => invoke<UnmanagedSkill[]>("scan_unmanaged");
 export const scanProject = (projectId: string) => invoke<UnmanagedSkill[]>("scan_project", { projectId });
 export const confirmImport = (imports: ImportReq[]) => invoke<SkillView[]>("confirm_import", { imports });
