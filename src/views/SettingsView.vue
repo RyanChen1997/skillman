@@ -117,7 +117,7 @@ function cancelReset() {
         <div class="border border-[var(--color-border)] rounded-lg overflow-hidden bg-[var(--color-surface)]">
           <div class="grid grid-cols-[200px_1fr_32px] gap-6 p-[18px] items-center">
             <div><div class="text-[13.5px] font-medium">版本号</div></div>
-            <div class="font-mono text-[13px]">v0.1.0</div>
+            <div class="font-mono text-[13px]">v0.2.0</div>
           </div>
         </div>
       </section>
