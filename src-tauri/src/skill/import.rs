@@ -65,6 +65,14 @@ pub fn confirm_import(db: &Arc<Database>, projects: &[Project], imports: Vec<Imp
         for o in &imp.origins {
             let src = std::path::Path::new(&o.path);
             if !src.exists() { continue; }
+            // Origins reported from the SSOT itself (scan_unmanaged pushes
+            // ssot_dir as a candidate with found_in="ssot" so that skills
+            // survive a lost DB) ARE the single source of truth. Taking them
+            // over would back up + DELETE the real files and then create a
+            // self-referencing symlink at the SSOT path, after which
+            // ssot.exists() returns false forever and every toggle/sync
+            // silently no-ops (regression: social-video-hotspot-detector).
+            if src.starts_with(&ssot) { continue; }
             if is_symlink_to(src, &ssot_path) { continue; }
             let backup = backups.join(format!("{}-preimport-{}", dir, ts));
             let _ = copy_dir_recursive(src, &backup);
@@ -221,7 +229,7 @@ mod tests {
     use super::*;
     use crate::models::{Project, UnmanagedOrigin};
     use crate::paths;
-    use crate::skill::fsutil::remove_recursive;
+    use crate::skill::fsutil::{is_symlink_to, remove_recursive};
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static DB_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -502,6 +510,62 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&root);
         let _ = remove_recursive(&paths::ssot_dir().join("fm-skill"));
+    }
+
+    /// Regression: social-video-hotspot-detector. When a skill dir already
+    /// exists in the SSOT but its DB row is missing (lost DB / crashed
+    /// import), scan_unmanaged reports the SSOT path itself as an origin
+    /// (found_in="ssot"). confirm_import's takeover loop used to back it up,
+    /// DELETE the real SSOT files, then create a self-referencing symlink at
+    /// the SSOT path -> ssot.exists() false forever -> toggles silently never
+    /// create agent symlinks.
+    #[test]
+    fn ssot_origin_never_takes_over_ssot_itself() {
+        let root = std::env::temp_dir().join(format!("skillman_import_ssot_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let home = root.join("home");
+        let agent_dir = home.join(".x/skills");
+        let ssot_dir = home.join(".skillman/skills");
+        // real files in the agent dir AND a pre-existing orphan SSOT copy
+        std::fs::create_dir_all(agent_dir.join("svhd")).unwrap();
+        std::fs::write(agent_dir.join("svhd").join("SKILL.md"), "---\nname: SVHD\ndescription: From agent.\n---\n# agent copy").unwrap();
+        std::fs::create_dir_all(ssot_dir.join("svhd")).unwrap();
+        std::fs::write(ssot_dir.join("svhd").join("SKILL.md"), "---\nname: SVHD\ndescription: From ssot.\n---\n# ssot copy").unwrap();
+
+        let db = tmp_db();
+        {
+            let c = db.conn();
+            c.execute(
+                "INSERT INTO agents(id,name,global_subpath,project_subpath,installed,source_only) VALUES('testagent','T','.x/skills','.x/skills',1,0)",
+                [],
+            ).unwrap();
+        }
+        let _ = remove_recursive(&paths::ssot_dir().join("svhd"));
+
+        let imports = vec![ImportReq {
+            dir: "svhd".into(),
+            origins: vec![
+                UnmanagedOrigin { path: agent_dir.join("svhd").to_string_lossy().to_string(), found_in: "agent:testagent".into() },
+                UnmanagedOrigin { path: ssot_dir.join("svhd").to_string_lossy().to_string(), found_in: "ssot".into() },
+            ],
+        }];
+        crate::paths::with_test_home(&home, || { confirm_import(&db, &[], imports); });
+
+        let ssot = ssot_dir.join("svhd");
+        let meta = std::fs::symlink_metadata(&ssot).unwrap();
+        assert!(meta.is_dir() && !meta.file_type().is_symlink(), "SSOT must stay a real directory, not a self-symlink");
+        let content = std::fs::read_to_string(ssot.join("SKILL.md")).unwrap();
+        assert!(content.contains("# ssot copy"), "SSOT real files must survive");
+        assert!(ssot.exists(), "SSOT must resolve normally");
+        // agent origin is still taken over: symlink at agent dir + enabled link
+        assert!(is_symlink_to(&agent_dir.join("svhd"), &ssot), "agent dir should link to SSOT");
+        let link: i64 = {
+            let c = db.conn();
+            c.query_row("SELECT COUNT(*) FROM skill_links WHERE skill_id='local:svhd' AND agent_id='testagent' AND enabled=1", [], |r| r.get(0)).unwrap()
+        };
+        assert_eq!(link, 1, "regular agent should have an enabled link");
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// Regression: same-name copies of ALREADY-imported skills re-appearing in

@@ -40,6 +40,15 @@ pub fn copy_dir_recursive(src: &Path, dst: &Path) -> io::Result<()> {
 
 /// Replace `dst` with a symlink to `src`. If symlink creation fails, fallback to a copy.
 pub fn create_symlink_or_copy(src: &Path, dst: &Path) -> io::Result<()> {
+    // Defense in depth: linking a path to itself creates a self-referencing
+    // symlink (ELOOP) that makes the path permanently unusable. Callers must
+    // never pass the SSOT path as both src and dst.
+    if src == dst {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("refusing to link {} to itself", dst.display()),
+        ));
+    }
     if dst.exists() || fs::symlink_metadata(dst).is_ok() {
         remove_recursive(dst)?;
     }
@@ -172,6 +181,18 @@ mod tests {
         // dst should exist and resolve to src content
         assert_eq!(fs::read_to_string(dst.join("f")).unwrap(), "1");
         assert!(is_symlink_to(&dst, &src));
+    }
+
+    #[test]
+    fn symlink_or_copy_refuses_self_link() {
+        let root = tmp("selflink");
+        let src = root.join("a");
+        fs::create_dir(&src).unwrap();
+        fs::write(src.join("f"), "1").unwrap();
+        let res = create_symlink_or_copy(&src, &src);
+        assert!(res.is_err(), "self-link must be refused");
+        assert!(fs::symlink_metadata(&src).unwrap().is_dir(), "src must stay a real dir");
+        assert_eq!(fs::read_to_string(src.join("f")).unwrap(), "1");
     }
 
     #[test]
