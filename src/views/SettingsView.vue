@@ -5,6 +5,7 @@ import { useAgentsStore } from "../stores/agents";
 import { useSettingsStore } from "../stores/settings";
 import { useSkillsStore } from "../stores/skills";
 import { getPaths, resetAll } from "../lib/tauri";
+import { getVersion } from "@tauri-apps/api/app";
 import Button from "../lib/ui/button.vue";
 import Switch from "../lib/ui/switch.vue";
 import Dialog from "../lib/ui/dialog.vue";
@@ -16,6 +17,7 @@ const router = useRouter();
 const tab = ref<"general" | "about">("general");
 const showResetConfirm = ref(false);
 const paths = ref<Record<string, string>>({});
+const version = ref("");
 
 const themeOptions = [
   { k: "light" as const, label: "浅色" },
@@ -32,6 +34,11 @@ function agentGlobalPath(subpath: string) {
 
 onMounted(async () => {
   paths.value = await getPaths();
+  try {
+    version.value = await getVersion();
+  } catch {
+    // 非 Tauri 环境（纯浏览器调试）时保持为空
+  }
 });
 
 function doReset() {
@@ -117,7 +124,7 @@ function cancelReset() {
         <div class="border border-[var(--color-border)] rounded-lg overflow-hidden bg-[var(--color-surface)]">
           <div class="grid grid-cols-[200px_1fr_32px] gap-6 p-[18px] items-center">
             <div><div class="text-[13.5px] font-medium">版本号</div></div>
-            <div class="font-mono text-[13px]">v0.2.0</div>
+            <div class="font-mono text-[13px]">v{{ version || "—" }}</div>
           </div>
         </div>
       </section>
